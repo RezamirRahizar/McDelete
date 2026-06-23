@@ -74,7 +74,7 @@ private struct WelcomeView: View {
                 }
             }
             .pickerStyle(.segmented)
-            .frame(maxWidth: 460)
+            .frame(maxWidth: 560)
 
             DateRangeRow(
                 enabled: Binding(get: { library.dateRangeEnabled }, set: { library.dateRangeEnabled = $0 }),

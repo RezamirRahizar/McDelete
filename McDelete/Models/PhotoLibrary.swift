@@ -23,6 +23,7 @@ final class PhotoLibrary {
         case videos = "Videos"
         case screenshots = "Screenshots"
         case livePhotos = "Live Photos"
+        case duplicates = "Duplicates"
         var id: String { rawValue }
 
         var systemImage: String {
@@ -32,6 +33,7 @@ final class PhotoLibrary {
             case .videos: return "video"
             case .screenshots: return "camera.viewfinder"
             case .livePhotos: return "livephoto"
+            case .duplicates: return "square.on.square"
             }
         }
     }
@@ -142,6 +144,7 @@ final class PhotoLibrary {
         collected.reserveCapacity(fetchResult.count)
         fetchResult.enumerateObjects { asset, _, _ in collected.append(asset) }
         if sortOrder == .random { collected.shuffle() }
+        if mediaFilter == .duplicates { collected = extractDuplicates(from: collected) }
 
         libraryTotalCount = collected.count
 
@@ -263,7 +266,8 @@ final class PhotoLibrary {
         var predicates: [NSPredicate] = []
 
         switch mediaFilter {
-        case .all:
+        case .all, .duplicates:
+            // Duplicates are post-filtered; fetch all media types first
             break
         case .photos:
             predicates.append(NSPredicate(format: "mediaType == %d",
@@ -294,5 +298,37 @@ final class PhotoLibrary {
         case 1: return predicates[0]
         default: return NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
         }
+    }
+
+    /// Returns assets that belong to groups of 2 or more near-identical items.
+    /// Groups by burst identifier first, then by same creation second + same pixel dimensions.
+    private func extractDuplicates(from assets: [PHAsset]) -> [PHAsset] {
+        var duplicateIDs: Set<String> = []
+
+        // Burst groups
+        var burstGroups: [String: [PHAsset]] = [:]
+        for asset in assets {
+            if let burstID = asset.burstIdentifier {
+                burstGroups[burstID, default: []].append(asset)
+            }
+        }
+        for (_, group) in burstGroups where group.count > 1 {
+            group.forEach { duplicateIDs.insert($0.localIdentifier) }
+        }
+
+        // Same-second + same-dimension groups (non-burst assets only)
+        let cal = Calendar.current
+        var timestampGroups: [String: [PHAsset]] = [:]
+        for asset in assets where asset.burstIdentifier == nil {
+            guard let date = asset.creationDate else { continue }
+            let c = cal.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+            let key = "\(c.year ?? 0)-\(c.month ?? 0)-\(c.day ?? 0)-\(c.hour ?? 0)-\(c.minute ?? 0)-\(c.second ?? 0)-\(asset.pixelWidth)x\(asset.pixelHeight)"
+            timestampGroups[key, default: []].append(asset)
+        }
+        for (_, group) in timestampGroups where group.count > 1 {
+            group.forEach { duplicateIDs.insert($0.localIdentifier) }
+        }
+
+        return assets.filter { duplicateIDs.contains($0.localIdentifier) }
     }
 }
