@@ -10,6 +10,21 @@ struct ReviewView: View {
 
     private let swipeThreshold: CGFloat = 110
 
+    private var isFilterActive: Bool {
+        library.mediaFilter != .all || library.dateRangeEnabled || !library.selectedAlbumID.isEmpty
+    }
+
+    private var filterHelpText: String {
+        var parts: [String] = []
+        if library.mediaFilter != .all { parts.append(library.mediaFilter.rawValue) }
+        if library.dateRangeEnabled { parts.append("Date range") }
+        if !library.selectedAlbumID.isEmpty {
+            let name = library.albums.first(where: { $0.localIdentifier == library.selectedAlbumID })?.localizedTitle ?? "Album"
+            parts.append(name)
+        }
+        return parts.isEmpty ? "Filter" : "Filter: \(parts.joined(separator: " · "))"
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
@@ -41,14 +56,14 @@ struct ReviewView: View {
                 Label("\(library.pendingDeletion.count) to delete", systemImage: "trash.fill")
                     .foregroundStyle(.red)
                 Button { showFilterSheet = true } label: {
-                    Image(systemName: library.mediaFilter == .all && !library.dateRangeEnabled
-                          ? "line.3.horizontal.decrease.circle"
-                          : "line.3.horizontal.decrease.circle.fill")
+                    Image(systemName: isFilterActive
+                          ? "line.3.horizontal.decrease.circle.fill"
+                          : "line.3.horizontal.decrease.circle")
                 }
                 .buttonStyle(.borderless)
-                .foregroundStyle(library.mediaFilter == .all && !library.dateRangeEnabled
+                .foregroundStyle(library.mediaFilter == .all && !library.dateRangeEnabled && library.selectedAlbumID.isEmpty
                                  ? Color.secondary : Color.accentColor)
-                .help("Filter: \(library.mediaFilter.rawValue)\(library.dateRangeEnabled ? " · Date range on" : "")")
+                .help(filterHelpText)
             }
             .font(.subheadline)
 
@@ -185,11 +200,13 @@ private struct FilterSheet: View {
     @State private var dateRangeEnabled: Bool = false
     @State private var startDate: Date = Date()
     @State private var endDate: Date = Date()
+    @State private var selectedAlbumID: String = ""
 
     private var hasChanges: Bool {
         selectedFilter != library.mediaFilter ||
         dateRangeEnabled != library.dateRangeEnabled ||
-        (dateRangeEnabled && (startDate != library.startDate || endDate != library.endDate))
+        (dateRangeEnabled && (startDate != library.startDate || endDate != library.endDate)) ||
+        selectedAlbumID != library.selectedAlbumID
     }
 
     var body: some View {
@@ -209,6 +226,22 @@ private struct FilterSheet: View {
 
             DateRangeRow(enabled: $dateRangeEnabled, startDate: $startDate, endDate: $endDate)
 
+            Divider()
+
+            HStack {
+                Text("Album").foregroundStyle(.secondary)
+                Picker("Album", selection: $selectedAlbumID) {
+                    Text("All Albums").tag("")
+                    if !library.albums.isEmpty {
+                        Divider()
+                        ForEach(library.albums, id: \.localIdentifier) { album in
+                            Text(album.localizedTitle ?? "Untitled").tag(album.localIdentifier)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            }
+
             if hasChanges {
                 Label("Changing filters resets the current session.", systemImage: "exclamationmark.triangle")
                     .font(.callout)
@@ -224,6 +257,7 @@ private struct FilterSheet: View {
                     library.dateRangeEnabled = dateRangeEnabled
                     library.startDate = startDate
                     library.endDate = endDate
+                    library.selectedAlbumID = selectedAlbumID
                     dismiss()
                     Task { await library.loadAssets() }
                 }
@@ -233,12 +267,13 @@ private struct FilterSheet: View {
             }
         }
         .padding(24)
-        .frame(minWidth: 340)
+        .frame(minWidth: 360)
         .onAppear {
             selectedFilter = library.mediaFilter
             dateRangeEnabled = library.dateRangeEnabled
             startDate = library.startDate
             endDate = library.endDate
+            selectedAlbumID = library.selectedAlbumID
         }
     }
 }

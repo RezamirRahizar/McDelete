@@ -52,6 +52,10 @@ final class PhotoLibrary {
     var dateRangeEnabled: Bool = false
     var startDate: Date = Calendar.current.date(byAdding: .year, value: -1, to: Date()) ?? Date()
     var endDate: Date = Date()
+    /// Local identifier of the album to restrict review to; empty string means all photos.
+    var selectedAlbumID: String = ""
+    /// All available albums (smart + user), populated after authorization.
+    private(set) var albums: [PHAssetCollection] = []
 
     private var hasLoaded = false
     /// (asset index, decision made) so the most recent choice can be undone.
@@ -112,15 +116,31 @@ final class PhotoLibrary {
         isLoading = true
         defer { isLoading = false }
 
+        fetchAlbums()
+
         let options = PHFetchOptions()
         let ascending = sortOrder == .oldestFirst
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: ascending)]
         options.predicate = buildPredicate()
 
-        let result = PHAsset.fetchAssets(with: options)
+        let fetchResult: PHFetchResult<PHAsset>
+        if !selectedAlbumID.isEmpty {
+            let collections = PHAssetCollection.fetchAssetCollections(
+                withLocalIdentifiers: [selectedAlbumID], options: nil)
+            if let collection = collections.firstObject {
+                fetchResult = PHAsset.fetchAssets(in: collection, options: options)
+            } else {
+                // Album was deleted; reset and fetch everything
+                selectedAlbumID = ""
+                fetchResult = PHAsset.fetchAssets(with: options)
+            }
+        } else {
+            fetchResult = PHAsset.fetchAssets(with: options)
+        }
+
         var collected: [PHAsset] = []
-        collected.reserveCapacity(result.count)
-        result.enumerateObjects { asset, _, _ in collected.append(asset) }
+        collected.reserveCapacity(fetchResult.count)
+        fetchResult.enumerateObjects { asset, _, _ in collected.append(asset) }
         if sortOrder == .random { collected.shuffle() }
 
         libraryTotalCount = collected.count
@@ -214,6 +234,30 @@ final class PhotoLibrary {
     }
 
     // MARK: - Private helpers
+
+    /// Populates `albums` with smart albums (curated order) followed by user albums (sorted by name).
+    private func fetchAlbums() {
+        var result: [PHAssetCollection] = []
+
+        let smartSubtypes: [PHAssetCollectionSubtype] = [
+            .smartAlbumFavorites, .smartAlbumRecentlyAdded, .smartAlbumVideos,
+            .smartAlbumSlomoVideos, .smartAlbumTimelapses, .smartAlbumLivePhotos,
+            .smartAlbumSelfPortraits, .smartAlbumScreenshots, .smartAlbumBursts,
+            .smartAlbumAnimated, .smartAlbumLongExposures, .smartAlbumCinematic
+        ]
+        for subtype in smartSubtypes {
+            PHAssetCollection.fetchAssetCollections(with: .smartAlbum, subtype: subtype, options: nil)
+                .enumerateObjects { col, _, _ in result.append(col) }
+        }
+
+        var userAlbums: [PHAssetCollection] = []
+        PHAssetCollection.fetchAssetCollections(with: .album, subtype: .any, options: nil)
+            .enumerateObjects { col, _, _ in userAlbums.append(col) }
+        userAlbums.sort { ($0.localizedTitle ?? "") < ($1.localizedTitle ?? "") }
+        result.append(contentsOf: userAlbums)
+
+        albums = result
+    }
 
     private func buildPredicate() -> NSPredicate? {
         var predicates: [NSPredicate] = []
