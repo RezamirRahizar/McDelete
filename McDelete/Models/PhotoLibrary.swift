@@ -46,6 +46,8 @@ final class PhotoLibrary {
     private(set) var pendingDeletion: [PHAsset] = []
     /// Total photos matching the current filter, including already-reviewed ones.
     private(set) var libraryTotalCount = 0
+    private(set) var reviewedPhotoCount = 0
+    private(set) var reviewedVideoCount = 0
 
     var isLoading = false
     var isDeleting = false
@@ -60,6 +62,8 @@ final class PhotoLibrary {
     private(set) var albums: [PHAssetCollection] = []
 
     private var hasLoaded = false
+    private var sessionStartDate: Date? = nil
+    private(set) var sessionEndDate: Date? = nil
     /// (asset index, decision made) so the most recent choice can be undone.
     private var history: [(index: Int, decision: Decision)] = []
 
@@ -79,7 +83,13 @@ final class PhotoLibrary {
     var isFinished: Bool { hasLoaded && index >= assets.count }
     var reviewedCount: Int { index }
     var totalCount: Int { assets.count }
+    var totalReviewed: Int { keptCount + pendingDeletion.count }
     var canUndo: Bool { !history.isEmpty }
+
+    var sessionDuration: TimeInterval? {
+        guard let start = sessionStartDate, let end = sessionEndDate else { return nil }
+        return end.timeIntervalSince(start)
+    }
 
     /// Returns the session decision for the asset at the given index, if any.
     func decision(for assetIndex: Int) -> Decision? {
@@ -166,6 +176,10 @@ final class PhotoLibrary {
         keptCount = kept
         index = 0
         history = []
+        reviewedPhotoCount = 0
+        reviewedVideoCount = 0
+        sessionStartDate = Date()
+        sessionEndDate = nil
         hasLoaded = true
     }
 
@@ -181,6 +195,7 @@ final class PhotoLibrary {
         guard let asset = currentAsset else { return }
         history.append((index, .kept))
         keptCount += 1
+        trackMediaType(asset)
         PersistenceController.shared.saveDecision(localIdentifier: asset.localIdentifier, markedForDeletion: false)
         advance()
     }
@@ -189,6 +204,7 @@ final class PhotoLibrary {
         guard let asset = currentAsset else { return }
         history.append((index, .deleted))
         pendingDeletion.append(asset)
+        trackMediaType(asset)
         PersistenceController.shared.saveDecision(localIdentifier: asset.localIdentifier, markedForDeletion: true)
         advance()
     }
@@ -198,6 +214,7 @@ final class PhotoLibrary {
         index = last.index
         let asset = assets[index]
         PersistenceController.shared.removeDecision(for: asset.localIdentifier)
+        untrackMediaType(asset)
         switch last.decision {
         case .kept:
             keptCount = max(0, keptCount - 1)
@@ -208,8 +225,27 @@ final class PhotoLibrary {
         }
     }
 
+    private func trackMediaType(_ asset: PHAsset) {
+        switch asset.mediaType {
+        case .image: reviewedPhotoCount += 1
+        case .video: reviewedVideoCount += 1
+        default: break
+        }
+    }
+
+    private func untrackMediaType(_ asset: PHAsset) {
+        switch asset.mediaType {
+        case .image: reviewedPhotoCount = max(0, reviewedPhotoCount - 1)
+        case .video: reviewedVideoCount = max(0, reviewedVideoCount - 1)
+        default: break
+        }
+    }
+
     private func advance() {
         index = min(index + 1, assets.count)
+        if isFinished, sessionEndDate == nil {
+            sessionEndDate = Date()
+        }
     }
 
     // MARK: - Committing deletions

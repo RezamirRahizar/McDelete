@@ -166,9 +166,15 @@ private struct SummaryView: View {
                 .font(.largeTitle.bold())
 
             HStack(spacing: 40) {
-                stat(count: library.keptCount, label: "Kept", tint: .green)
-                stat(count: library.pendingDeletion.count, label: "To delete", tint: .red)
+                stat(count: library.keptCount,
+                     percentage: percentage(library.keptCount),
+                     label: "Kept", tint: .green)
+                stat(count: library.pendingDeletion.count,
+                     percentage: percentage(library.pendingDeletion.count),
+                     label: "To delete", tint: .red)
             }
+
+            sessionDetailRow
 
             if !library.pendingDeletion.isEmpty {
                 Text("These move to Recently Deleted, where they stay for 30 days before being permanently removed.")
@@ -212,9 +218,48 @@ private struct SummaryView: View {
         }
     }
 
-    private func stat(count: Int, label: String, tint: Color) -> some View {
-        VStack {
+    @ViewBuilder
+    private var sessionDetailRow: some View {
+        let showPhotos = library.reviewedPhotoCount > 0
+        let showVideos = library.reviewedVideoCount > 0
+        let showTime = library.sessionDuration != nil
+        if showPhotos || showVideos || showTime {
+            HStack(spacing: 20) {
+                if showPhotos {
+                    Label("\(library.reviewedPhotoCount)", systemImage: "photo")
+                }
+                if showVideos {
+                    Label("\(library.reviewedVideoCount)", systemImage: "video")
+                }
+                if let duration = library.sessionDuration {
+                    Label(formattedDuration(duration), systemImage: "clock")
+                }
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private func percentage(_ count: Int) -> Int? {
+        let total = library.totalReviewed
+        guard total > 0 else { return nil }
+        return Int((Double(count) / Double(total)) * 100)
+    }
+
+    private func formattedDuration(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds)
+        if total < 60 { return "\(total)s" }
+        let min = total / 60
+        let sec = total % 60
+        return sec > 0 ? "\(min)m \(sec)s" : "\(min)m"
+    }
+
+    private func stat(count: Int, percentage: Int?, label: String, tint: Color) -> some View {
+        VStack(spacing: 2) {
             Text("\(count)").font(.system(size: 40, weight: .bold, design: .rounded)).foregroundStyle(tint)
+            if let percentage {
+                Text("\(percentage)%").font(.caption).foregroundStyle(tint.opacity(0.7))
+            }
             Text(label).foregroundStyle(.secondary)
         }
     }
