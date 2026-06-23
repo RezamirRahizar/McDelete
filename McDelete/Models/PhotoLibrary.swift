@@ -44,12 +44,31 @@ final class PhotoLibrary {
     var currentAsset: PHAsset? {
         assets.indices.contains(index) ? assets[index] : nil
     }
-
+    
     var hasStarted: Bool { hasLoaded }
     var isFinished: Bool { hasLoaded && index >= assets.count }
     var reviewedCount: Int { index }
     var totalCount: Int { assets.count }
     var canUndo: Bool { !history.isEmpty }
+
+    /// Returns the session decision for the asset at the given index, if any.
+    func decision(for assetIndex: Int) -> Decision? {
+        history.last(where: { $0.index == assetIndex })?.decision
+    }
+
+    /// Navigates to the asset at the given index, undoing any session decisions that come after it.
+    func jumpTo(assetIndex: Int) {
+        guard assets.indices.contains(assetIndex) else { return }
+        if assetIndex <= index {
+            while index > assetIndex {
+                guard let last = history.last, last.index >= assetIndex else { break }
+                undo()
+            }
+            index = assetIndex
+        } else {
+            index = assetIndex
+        }
+    }
 
     var progress: Double {
         assets.isEmpty ? 0 : Double(min(index, assets.count)) / Double(assets.count)

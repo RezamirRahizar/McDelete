@@ -10,11 +10,16 @@ struct ReviewView: View {
     private let swipeThreshold: CGFloat = 110
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                header
+                Divider()
+                cardArea
+                controls
+            }
             Divider()
-            cardArea
-            controls
+            TimelineView()
+                .frame(width: 88)
         }
         .background(.background)
     }
