@@ -66,6 +66,16 @@ private struct WelcomeView: View {
             .pickerStyle(.segmented)
             .frame(maxWidth: 360)
 
+            Picker("Media type", selection: Binding(
+                get: { library.mediaFilter },
+                set: { library.mediaFilter = $0 })) {
+                ForEach(PhotoLibrary.MediaFilter.allCases) {
+                    Label($0.rawValue, systemImage: $0.systemImage).tag($0)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 460)
+
             Button {
                 Task { await library.requestAccess() }
             } label: {

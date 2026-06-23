@@ -6,6 +6,7 @@ struct ReviewView: View {
     @Environment(PhotoLibrary.self) private var library
     @State private var dragOffset: CGSize = .zero
     @State private var isAnimatingOut = false
+    @State private var showFilterSheet = false
 
     private let swipeThreshold: CGFloat = 110
 
@@ -22,6 +23,9 @@ struct ReviewView: View {
                 .frame(width: 88)
         }
         .background(.background)
+        .sheet(isPresented: $showFilterSheet) {
+            FilterSheet()
+        }
     }
 
     // MARK: - Header
@@ -36,6 +40,14 @@ struct ReviewView: View {
                     .foregroundStyle(.green)
                 Label("\(library.pendingDeletion.count) to delete", systemImage: "trash.fill")
                     .foregroundStyle(.red)
+                Button { showFilterSheet = true } label: {
+                    Image(systemName: library.mediaFilter == .all
+                          ? "line.3.horizontal.decrease.circle"
+                          : "line.3.horizontal.decrease.circle.fill")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(library.mediaFilter == .all ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.accentColor))
+                .help("Filter: \(library.mediaFilter.rawValue)")
             }
             .font(.subheadline)
 
@@ -160,5 +172,51 @@ struct ReviewView: View {
             dragOffset = .zero          // next card (new .id) appears centered
             isAnimatingOut = false
         }
+    }
+}
+
+// MARK: - Filter sheet
+
+private struct FilterSheet: View {
+    @Environment(PhotoLibrary.self) private var library
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedFilter: PhotoLibrary.MediaFilter = .all
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Filter by Media Type")
+                .font(.headline)
+
+            Picker("Media Type", selection: $selectedFilter) {
+                ForEach(PhotoLibrary.MediaFilter.allCases) {
+                    Label($0.rawValue, systemImage: $0.systemImage).tag($0)
+                }
+            }
+            .pickerStyle(.radioGroup)
+            .labelsHidden()
+
+            if selectedFilter != library.mediaFilter {
+                Label("Changing the filter resets the current session.", systemImage: "exclamationmark.triangle")
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Apply") {
+                    library.mediaFilter = selectedFilter
+                    dismiss()
+                    Task { await library.loadAssets() }
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(selectedFilter == library.mediaFilter)
+            }
+        }
+        .padding(24)
+        .frame(minWidth: 300)
+        .onAppear { selectedFilter = library.mediaFilter }
     }
 }

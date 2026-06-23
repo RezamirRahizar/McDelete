@@ -16,18 +16,39 @@ final class PhotoLibrary {
         var id: String { rawValue }
     }
 
+    /// Which media types to include in the review session.
+    enum MediaFilter: String, CaseIterable, Identifiable {
+        case all = "All"
+        case photos = "Photos"
+        case videos = "Videos"
+        case screenshots = "Screenshots"
+        case livePhotos = "Live Photos"
+        var id: String { rawValue }
+
+        var systemImage: String {
+            switch self {
+            case .all: return "photo.stack"
+            case .photos: return "photo"
+            case .videos: return "video"
+            case .screenshots: return "camera.viewfinder"
+            case .livePhotos: return "livephoto"
+            }
+        }
+    }
+
     private(set) var status: PHAuthorizationStatus
     /// Only unreviewed assets; previously reviewed ones are restored from Core Data.
     private(set) var assets: [PHAsset] = []
     private(set) var index = 0
     private(set) var keptCount = 0
     private(set) var pendingDeletion: [PHAsset] = []
-    /// Total photos in the library including already-reviewed ones.
+    /// Total photos matching the current filter, including already-reviewed ones.
     private(set) var libraryTotalCount = 0
 
     var isLoading = false
     var isDeleting = false
     var sortOrder: SortOrder = .oldestFirst
+    var mediaFilter: MediaFilter = .all
 
     private var hasLoaded = false
     /// (asset index, decision made) so the most recent choice can be undone.
@@ -44,7 +65,7 @@ final class PhotoLibrary {
     var currentAsset: PHAsset? {
         assets.indices.contains(index) ? assets[index] : nil
     }
-    
+
     var hasStarted: Bool { hasLoaded }
     var isFinished: Bool { hasLoaded && index >= assets.count }
     var reviewedCount: Int { index }
@@ -91,6 +112,23 @@ final class PhotoLibrary {
         let options = PHFetchOptions()
         let ascending = sortOrder == .oldestFirst
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: ascending)]
+
+        switch mediaFilter {
+        case .all:
+            break
+        case .photos:
+            options.predicate = NSPredicate(format: "mediaType == %d",
+                PHAssetMediaType.image.rawValue)
+        case .videos:
+            options.predicate = NSPredicate(format: "mediaType == %d",
+                PHAssetMediaType.video.rawValue)
+        case .screenshots:
+            options.predicate = NSPredicate(format: "mediaType == %d AND (mediaSubtype & %d) != 0",
+                PHAssetMediaType.image.rawValue, PHAssetMediaSubtype.photoScreenshot.rawValue)
+        case .livePhotos:
+            options.predicate = NSPredicate(format: "mediaType == %d AND (mediaSubtype & %d) != 0",
+                PHAssetMediaType.image.rawValue, PHAssetMediaSubtype.photoLive.rawValue)
+        }
 
         let result = PHAsset.fetchAssets(with: options)
         var collected: [PHAsset] = []
