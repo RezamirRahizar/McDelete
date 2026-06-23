@@ -30,7 +30,7 @@ struct ContentView: View {
             CenteredMessage(systemImage: "photo.on.rectangle.angled",
                             title: "Loading your library…",
                             message: nil) { ProgressView() }
-        } else if library.totalCount == 0 {
+        } else if library.libraryTotalCount == 0 {
             CenteredMessage(systemImage: "photo",
                             title: "No photos found",
                             message: "Your photo library appears to be empty.")
@@ -153,7 +153,7 @@ private struct SummaryView: View {
             }
 
             Button("Review Again") {
-                Task { await library.loadAssets() }
+                Task { await library.resetAndLoadAssets() }
             }
             .controlSize(.large)
             .disabled(library.isDeleting)
@@ -162,7 +162,7 @@ private struct SummaryView: View {
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .alert("Couldn’t delete items", isPresented: $deletionFailed) {
+        .alert("Couldn't delete items", isPresented: $deletionFailed) {
             Button("OK", role: .cancel) {}
         } message: {
             Text("The deletion was cancelled or failed. Your photos are unchanged.")

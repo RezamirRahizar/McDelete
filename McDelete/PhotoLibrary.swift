@@ -17,15 +17,19 @@ final class PhotoLibrary {
     }
 
     private(set) var status: PHAuthorizationStatus
+    /// Only unreviewed assets; previously reviewed ones are restored from Core Data.
     private(set) var assets: [PHAsset] = []
     private(set) var index = 0
     private(set) var keptCount = 0
     private(set) var pendingDeletion: [PHAsset] = []
+    /// Total photos in the library including already-reviewed ones.
+    private(set) var libraryTotalCount = 0
 
     var isLoading = false
     var isDeleting = false
     var sortOrder: SortOrder = .oldestFirst
 
+    private var hasLoaded = false
     /// (asset index, decision made) so the most recent choice can be undone.
     private var history: [(index: Int, decision: Decision)] = []
 
@@ -41,8 +45,8 @@ final class PhotoLibrary {
         assets.indices.contains(index) ? assets[index] : nil
     }
 
-    var hasStarted: Bool { !assets.isEmpty }
-    var isFinished: Bool { !assets.isEmpty && index >= assets.count }
+    var hasStarted: Bool { hasLoaded }
+    var isFinished: Bool { hasLoaded && index >= assets.count }
     var reviewedCount: Int { index }
     var totalCount: Int { assets.count }
     var canUndo: Bool { !history.isEmpty }
@@ -56,7 +60,6 @@ final class PhotoLibrary {
     func requestAccess() async {
         let newStatus = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
         status = newStatus
-        print(status.rawValue)
         if newStatus == .authorized || newStatus == .limited {
             await loadAssets()
         }
@@ -76,19 +79,42 @@ final class PhotoLibrary {
         result.enumerateObjects { asset, _, _ in collected.append(asset) }
         if sortOrder == .random { collected.shuffle() }
 
-        assets = collected
+        libraryTotalCount = collected.count
+
+        let saved = PersistenceController.shared.fetchAllDecisions()
+        var kept = 0
+        var toDelete: [PHAsset] = []
+        var unreviewed: [PHAsset] = []
+
+        for asset in collected {
+            if let markedForDeletion = saved[asset.localIdentifier] {
+                if markedForDeletion { toDelete.append(asset) } else { kept += 1 }
+            } else {
+                unreviewed.append(asset)
+            }
+        }
+
+        assets = unreviewed
+        pendingDeletion = toDelete
+        keptCount = kept
         index = 0
-        keptCount = 0
-        pendingDeletion = []
         history = []
+        hasLoaded = true
+    }
+
+    /// Clears all saved decisions and reloads the full library from scratch.
+    func resetAndLoadAssets() async {
+        PersistenceController.shared.deleteAllDecisions()
+        await loadAssets()
     }
 
     // MARK: - Decisions
 
     func keep() {
-        guard currentAsset != nil else { return }
+        guard let asset = currentAsset else { return }
         history.append((index, .kept))
         keptCount += 1
+        PersistenceController.shared.saveDecision(localIdentifier: asset.localIdentifier, markedForDeletion: false)
         advance()
     }
 
@@ -96,17 +122,20 @@ final class PhotoLibrary {
         guard let asset = currentAsset else { return }
         history.append((index, .deleted))
         pendingDeletion.append(asset)
+        PersistenceController.shared.saveDecision(localIdentifier: asset.localIdentifier, markedForDeletion: true)
         advance()
     }
 
     func undo() {
-        guard let last = history.popLast() else { return }
+        guard let last = history.popLast(), assets.indices.contains(last.index) else { return }
         index = last.index
+        let asset = assets[index]
+        PersistenceController.shared.removeDecision(for: asset.localIdentifier)
         switch last.decision {
         case .kept:
             keptCount = max(0, keptCount - 1)
         case .deleted:
-            if let asset = currentAsset, let pos = pendingDeletion.lastIndex(of: asset) {
+            if let pos = pendingDeletion.lastIndex(of: asset) {
                 pendingDeletion.remove(at: pos)
             }
         }
@@ -119,7 +148,6 @@ final class PhotoLibrary {
     // MARK: - Committing deletions
 
     /// Moves every asset marked for deletion to the system "Recently Deleted" album.
-    /// macOS shows its own confirmation dialog before the change is applied.
     @discardableResult
     func confirmDeletions() async -> Bool {
         guard !pendingDeletion.isEmpty else { return true }
@@ -131,13 +159,10 @@ final class PhotoLibrary {
             try await PHPhotoLibrary.shared().performChanges {
                 PHAssetChangeRequest.deleteAssets(toDelete as NSArray)
             }
-            // Drop the deleted assets and continue with whatever is left.
             let deletedIDs = Set(toDelete.map(\.localIdentifier))
-            assets.removeAll { deletedIDs.contains($0.localIdentifier) }
+            PersistenceController.shared.removeDecisions(for: deletedIDs)
             pendingDeletion = []
             history = []
-            index = 0
-            keptCount = 0
             return true
         } catch {
             return false
