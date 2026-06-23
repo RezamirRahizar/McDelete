@@ -41,13 +41,14 @@ struct ReviewView: View {
                 Label("\(library.pendingDeletion.count) to delete", systemImage: "trash.fill")
                     .foregroundStyle(.red)
                 Button { showFilterSheet = true } label: {
-                    Image(systemName: library.mediaFilter == .all
+                    Image(systemName: library.mediaFilter == .all && !library.dateRangeEnabled
                           ? "line.3.horizontal.decrease.circle"
                           : "line.3.horizontal.decrease.circle.fill")
                 }
                 .buttonStyle(.borderless)
-                .foregroundStyle(library.mediaFilter == .all ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.accentColor))
-                .help("Filter: \(library.mediaFilter.rawValue)")
+                .foregroundStyle(library.mediaFilter == .all && !library.dateRangeEnabled
+                                 ? Color.secondary : Color.accentColor)
+                .help("Filter: \(library.mediaFilter.rawValue)\(library.dateRangeEnabled ? " · Date range on" : "")")
             }
             .font(.subheadline)
 
@@ -181,10 +182,19 @@ private struct FilterSheet: View {
     @Environment(PhotoLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
     @State private var selectedFilter: PhotoLibrary.MediaFilter = .all
+    @State private var dateRangeEnabled: Bool = false
+    @State private var startDate: Date = Date()
+    @State private var endDate: Date = Date()
+
+    private var hasChanges: Bool {
+        selectedFilter != library.mediaFilter ||
+        dateRangeEnabled != library.dateRangeEnabled ||
+        (dateRangeEnabled && (startDate != library.startDate || endDate != library.endDate))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Filter by Media Type")
+            Text("Change Filter")
                 .font(.headline)
 
             Picker("Media Type", selection: $selectedFilter) {
@@ -195,8 +205,12 @@ private struct FilterSheet: View {
             .pickerStyle(.radioGroup)
             .labelsHidden()
 
-            if selectedFilter != library.mediaFilter {
-                Label("Changing the filter resets the current session.", systemImage: "exclamationmark.triangle")
+            Divider()
+
+            DateRangeRow(enabled: $dateRangeEnabled, startDate: $startDate, endDate: $endDate)
+
+            if hasChanges {
+                Label("Changing filters resets the current session.", systemImage: "exclamationmark.triangle")
                     .font(.callout)
                     .foregroundStyle(.orange)
             }
@@ -207,16 +221,24 @@ private struct FilterSheet: View {
                     .keyboardShortcut(.cancelAction)
                 Button("Apply") {
                     library.mediaFilter = selectedFilter
+                    library.dateRangeEnabled = dateRangeEnabled
+                    library.startDate = startDate
+                    library.endDate = endDate
                     dismiss()
                     Task { await library.loadAssets() }
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
-                .disabled(selectedFilter == library.mediaFilter)
+                .disabled(!hasChanges)
             }
         }
         .padding(24)
-        .frame(minWidth: 300)
-        .onAppear { selectedFilter = library.mediaFilter }
+        .frame(minWidth: 340)
+        .onAppear {
+            selectedFilter = library.mediaFilter
+            dateRangeEnabled = library.dateRangeEnabled
+            startDate = library.startDate
+            endDate = library.endDate
+        }
     }
 }

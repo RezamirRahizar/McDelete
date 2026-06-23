@@ -76,6 +76,13 @@ private struct WelcomeView: View {
             .pickerStyle(.segmented)
             .frame(maxWidth: 460)
 
+            DateRangeRow(
+                enabled: Binding(get: { library.dateRangeEnabled }, set: { library.dateRangeEnabled = $0 }),
+                startDate: Binding(get: { library.startDate }, set: { library.startDate = $0 }),
+                endDate: Binding(get: { library.endDate }, set: { library.endDate = $0 })
+            )
+            .frame(maxWidth: 460)
+
             Button {
                 Task { await library.requestAccess() }
             } label: {
@@ -89,6 +96,32 @@ private struct WelcomeView: View {
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - Date range row (shared between WelcomeView and FilterSheet)
+
+struct DateRangeRow: View {
+    @Binding var enabled: Bool
+    @Binding var startDate: Date
+    @Binding var endDate: Date
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle("Filter by date range", isOn: $enabled)
+                .toggleStyle(.checkbox)
+
+            if enabled {
+                HStack(spacing: 6) {
+                    Text("From").foregroundStyle(.secondary).frame(width: 36, alignment: .trailing)
+                    DatePicker("", selection: $startDate, in: ...endDate, displayedComponents: .date)
+                        .labelsHidden()
+                    Text("to").foregroundStyle(.secondary)
+                    DatePicker("", selection: $endDate, in: startDate..., displayedComponents: .date)
+                        .labelsHidden()
+                }
+            }
+        }
     }
 }
 

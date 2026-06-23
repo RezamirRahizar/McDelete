@@ -49,6 +49,9 @@ final class PhotoLibrary {
     var isDeleting = false
     var sortOrder: SortOrder = .oldestFirst
     var mediaFilter: MediaFilter = .all
+    var dateRangeEnabled: Bool = false
+    var startDate: Date = Calendar.current.date(byAdding: .year, value: -1, to: Date()) ?? Date()
+    var endDate: Date = Date()
 
     private var hasLoaded = false
     /// (asset index, decision made) so the most recent choice can be undone.
@@ -112,23 +115,7 @@ final class PhotoLibrary {
         let options = PHFetchOptions()
         let ascending = sortOrder == .oldestFirst
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: ascending)]
-
-        switch mediaFilter {
-        case .all:
-            break
-        case .photos:
-            options.predicate = NSPredicate(format: "mediaType == %d",
-                PHAssetMediaType.image.rawValue)
-        case .videos:
-            options.predicate = NSPredicate(format: "mediaType == %d",
-                PHAssetMediaType.video.rawValue)
-        case .screenshots:
-            options.predicate = NSPredicate(format: "mediaType == %d AND (mediaSubtype & %d) != 0",
-                PHAssetMediaType.image.rawValue, PHAssetMediaSubtype.photoScreenshot.rawValue)
-        case .livePhotos:
-            options.predicate = NSPredicate(format: "mediaType == %d AND (mediaSubtype & %d) != 0",
-                PHAssetMediaType.image.rawValue, PHAssetMediaSubtype.photoLive.rawValue)
-        }
+        options.predicate = buildPredicate()
 
         let result = PHAsset.fetchAssets(with: options)
         var collected: [PHAsset] = []
@@ -223,6 +210,45 @@ final class PhotoLibrary {
             return true
         } catch {
             return false
+        }
+    }
+
+    // MARK: - Private helpers
+
+    private func buildPredicate() -> NSPredicate? {
+        var predicates: [NSPredicate] = []
+
+        switch mediaFilter {
+        case .all:
+            break
+        case .photos:
+            predicates.append(NSPredicate(format: "mediaType == %d",
+                PHAssetMediaType.image.rawValue))
+        case .videos:
+            predicates.append(NSPredicate(format: "mediaType == %d",
+                PHAssetMediaType.video.rawValue))
+        case .screenshots:
+            predicates.append(NSPredicate(format: "mediaType == %d AND (mediaSubtype & %d) != 0",
+                PHAssetMediaType.image.rawValue, PHAssetMediaSubtype.photoScreenshot.rawValue))
+        case .livePhotos:
+            predicates.append(NSPredicate(format: "mediaType == %d AND (mediaSubtype & %d) != 0",
+                PHAssetMediaType.image.rawValue, PHAssetMediaSubtype.photoLive.rawValue))
+        }
+
+        if dateRangeEnabled {
+            let cal = Calendar.current
+            let start = cal.startOfDay(for: startDate)
+            var comps = cal.dateComponents([.year, .month, .day], from: endDate)
+            comps.hour = 23; comps.minute = 59; comps.second = 59
+            let end = cal.date(from: comps) ?? endDate
+            predicates.append(NSPredicate(format: "creationDate >= %@", start as NSDate))
+            predicates.append(NSPredicate(format: "creationDate <= %@", end as NSDate))
+        }
+
+        switch predicates.count {
+        case 0: return nil
+        case 1: return predicates[0]
+        default: return NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
         }
     }
 }
