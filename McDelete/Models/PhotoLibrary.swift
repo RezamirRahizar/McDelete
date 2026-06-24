@@ -44,6 +44,7 @@ final class PhotoLibrary {
     private(set) var index = 0
     private(set) var keptCount = 0
     private(set) var pendingDeletion: [PHAsset] = []
+    private(set) var pendingDeletionBytes: Int64 = 0
     /// Total photos matching the current filter, including already-reviewed ones.
     private(set) var libraryTotalCount = 0
     private(set) var reviewedPhotoCount = 0
@@ -85,6 +86,9 @@ final class PhotoLibrary {
     var totalCount: Int { assets.count }
     var totalReviewed: Int { keptCount + pendingDeletion.count }
     var canUndo: Bool { !history.isEmpty }
+    var pendingDeletionSize: String {
+        ByteCountFormatter.string(fromByteCount: pendingDeletionBytes, countStyle: .file)
+    }
 
     var sessionDuration: TimeInterval? {
         guard let start = sessionStartDate, let end = sessionEndDate else { return nil }
@@ -173,6 +177,7 @@ final class PhotoLibrary {
 
         assets = unreviewed
         pendingDeletion = toDelete
+        pendingDeletionBytes = toDelete.reduce(0) { $0 + fileSize(for: $1) }
         keptCount = kept
         index = 0
         history = []
@@ -204,6 +209,7 @@ final class PhotoLibrary {
         guard let asset = currentAsset else { return }
         history.append((index, .deleted))
         pendingDeletion.append(asset)
+        pendingDeletionBytes += fileSize(for: asset)
         trackMediaType(asset)
         PersistenceController.shared.saveDecision(localIdentifier: asset.localIdentifier, markedForDeletion: true)
         advance()
@@ -222,6 +228,7 @@ final class PhotoLibrary {
             if let pos = pendingDeletion.lastIndex(of: asset) {
                 pendingDeletion.remove(at: pos)
             }
+            pendingDeletionBytes = max(0, pendingDeletionBytes - fileSize(for: asset))
         }
     }
 
@@ -265,6 +272,7 @@ final class PhotoLibrary {
             let deletedIDs = Set(toDelete.map(\.localIdentifier))
             PersistenceController.shared.removeDecisions(for: deletedIDs)
             pendingDeletion = []
+            pendingDeletionBytes = 0
             history = []
             return true
         } catch {
@@ -273,6 +281,12 @@ final class PhotoLibrary {
     }
 
     // MARK: - Private helpers
+
+    private func fileSize(for asset: PHAsset) -> Int64 {
+        PHAssetResource.assetResources(for: asset)
+            .compactMap { $0.value(forKey: "fileSize") as? Int64 }
+            .reduce(0, +)
+    }
 
     /// Populates `albums` with smart albums (curated order) followed by user albums (sorted by name).
     private func fetchAlbums() {

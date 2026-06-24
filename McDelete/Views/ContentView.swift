@@ -171,7 +171,8 @@ private struct SummaryView: View {
                      label: "Kept", tint: .green)
                 stat(count: library.pendingDeletion.count,
                      percentage: percentage(library.pendingDeletion.count),
-                     label: "To delete", tint: .red)
+                     label: "To delete", tint: .red,
+                     subtitle: library.pendingDeletionBytes > 0 ? library.pendingDeletionSize : nil)
             }
 
             sessionDetailRow
@@ -254,13 +255,16 @@ private struct SummaryView: View {
         return sec > 0 ? "\(min)m \(sec)s" : "\(min)m"
     }
 
-    private func stat(count: Int, percentage: Int?, label: String, tint: Color) -> some View {
+    private func stat(count: Int, percentage: Int?, label: String, tint: Color, subtitle: String? = nil) -> some View {
         VStack(spacing: 2) {
             Text("\(count)").font(.system(size: 40, weight: .bold, design: .rounded)).foregroundStyle(tint)
             if let percentage {
                 Text("\(percentage)%").font(.caption).foregroundStyle(tint.opacity(0.7))
             }
             Text(label).foregroundStyle(.secondary)
+            if let subtitle {
+                Text(subtitle).font(.caption).foregroundStyle(tint.opacity(0.6))
+            }
         }
     }
 }

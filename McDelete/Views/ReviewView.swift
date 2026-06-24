@@ -66,6 +66,16 @@ struct ReviewView: View {
                 .help(filterHelpText)
             }
             .font(.subheadline)
+            
+            if(library.pendingDeletionBytes > 0) {
+                HStack(alignment: .firstTextBaseline) {
+                    Spacer()
+                    Text("Estimated size to delete: \(library.pendingDeletionSize)")
+                        .font(.subheadline)
+                }
+                
+
+            }
 
             ProgressView(value: library.progress)
                 .tint(.accentColor)
