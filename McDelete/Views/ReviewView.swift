@@ -50,20 +50,20 @@ struct ReviewView: View {
             HStack(alignment: .firstTextBaseline) {
                 Text("Reviewing \(library.reviewedCount + 1) of \(library.totalCount)")
                     .font(.headline)
-                Spacer()
-                Label("\(library.keptCount) kept", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                Label("\(library.pendingDeletion.count) to delete", systemImage: "trash.fill")
-                    .foregroundStyle(.red)
                 Button { showFilterSheet = true } label: {
                     Image(systemName: isFilterActive
                           ? "line.3.horizontal.decrease.circle.fill"
                           : "line.3.horizontal.decrease.circle")
                 }
-                .buttonStyle(.borderless)
-                .foregroundStyle(library.mediaFilter == .all && !library.dateRangeEnabled && library.selectedAlbumID.isEmpty
-                                 ? Color.secondary : Color.accentColor)
-                .help(filterHelpText)
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(library.mediaFilter == .all && !library.dateRangeEnabled && library.selectedAlbumID.isEmpty
+                                     ? Color.secondary : Color.accentColor)
+                    .help(filterHelpText)
+                Spacer()
+                Label("\(library.keptCount) kept", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Label("\(library.pendingDeletion.count) to delete", systemImage: "trash.fill")
+                    .foregroundStyle(.red)
             }
             .font(.subheadline)
             
