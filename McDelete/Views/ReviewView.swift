@@ -1,5 +1,6 @@
 import SwiftUI
 import Photos
+import AppKit
 import UniformTypeIdentifiers
 
 /// The main swipe-to-decide screen.
@@ -9,8 +10,22 @@ struct ReviewView: View {
     @State private var dragOffset: CGSize = .zero
     @State private var isAnimatingOut = false
     @State private var showFilterSheet = false
+    @State private var isSceneActive = true
 
     private let swipeThreshold: CGFloat = 110
+
+    private var formattedElapsed: String {
+        let total = library.activeReviewSeconds
+        let weeks   = total / 604800
+        let days    = (total % 604800) / 86400
+        let hours   = (total % 86400)  / 3600
+        let minutes = (total % 3600)   / 60
+        let seconds = total % 60
+        if weeks > 0  { return "\(weeks)w \(days)d \(hours)h" }
+        if days > 0   { return "\(days)d \(hours)h \(minutes)m" }
+        if hours > 0  { return String(format: "%d:%02d:%02d", hours, minutes, seconds) }
+        return String(format: "%d:%02d", minutes, seconds)
+    }
 
     private var isFilterActive: Bool {
         library.mediaFilter != .all || library.dateRangeEnabled || !library.selectedAlbumID.isEmpty
@@ -42,6 +57,25 @@ struct ReviewView: View {
         .background(.background)
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet()
+        }
+        .onAppear {
+            isSceneActive = NSApplication.shared.isActive
+        }
+        .task {
+            while true {
+                try? await Task.sleep(for: .seconds(1))
+                if isSceneActive { library.incrementActiveTime() }
+            }
+        }
+        .task {
+            for await _ in NotificationCenter.default.notifications(named: NSApplication.didResignActiveNotification) {
+                isSceneActive = false
+            }
+        }
+        .task {
+            for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
+                isSceneActive = true
+            }
         }
     }
 
@@ -77,6 +111,9 @@ struct ReviewView: View {
             
             if(library.pendingDeletionBytes > 0) {
                 HStack(alignment: .firstTextBaseline) {
+                    Label("Time elasped: \(formattedElapsed)", systemImage: "clock")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
                     Spacer()
                     Text("Estimated size to delete: \(library.pendingDeletionSize)")
                         .font(.subheadline)

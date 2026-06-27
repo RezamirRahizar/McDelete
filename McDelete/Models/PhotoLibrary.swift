@@ -50,6 +50,7 @@ final class PhotoLibrary {
     private(set) var libraryTotalCount = 0
     private(set) var reviewedPhotoCount = 0
     private(set) var reviewedVideoCount = 0
+    private(set) var activeReviewSeconds: Int = 0
 
     var isLoading = false
     var isDeleting = false
@@ -71,8 +72,21 @@ final class PhotoLibrary {
 
     let imageManager = PHCachingImageManager()
 
+    private static let activeReviewSecondsKey = "activeReviewSeconds"
+
     init() {
         status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        activeReviewSeconds = UserDefaults.standard.integer(forKey: PhotoLibrary.activeReviewSecondsKey)
+    }
+
+    func incrementActiveTime() {
+        activeReviewSeconds += 1
+        UserDefaults.standard.set(activeReviewSeconds, forKey: PhotoLibrary.activeReviewSecondsKey)
+    }
+
+    private func resetActiveTime() {
+        activeReviewSeconds = 0
+        UserDefaults.standard.removeObject(forKey: PhotoLibrary.activeReviewSecondsKey)
     }
 
     // MARK: - Derived state
@@ -279,6 +293,7 @@ final class PhotoLibrary {
             pendingDeletion = []
             pendingDeletionBytes = 0
             history = []
+            resetActiveTime()
             return true
         } catch {
             return false
