@@ -7,6 +7,7 @@ struct ReviewedMediaView: View {
 
     @State private var selectedTab = 0
     @State private var deletionFailed = false
+    @State private var selectedItem: AssetSelection?
 
     private let columns = [GridItem(.adaptive(minimum: 96, maximum: 130), spacing: 2)]
 
@@ -23,6 +24,9 @@ struct ReviewedMediaView: View {
             }
         }
         .frame(minWidth: 520, minHeight: 460)
+        .sheet(item: $selectedItem) { item in
+            AssetPreviewSheet(assets: item.allAssets, startIndex: item.index, imageManager: library.imageManager)
+        }
         .alert("Couldn't delete items", isPresented: $deletionFailed) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -71,8 +75,16 @@ struct ReviewedMediaView: View {
         } else {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 2) {
-                    ForEach(assets, id: \.localIdentifier) { asset in
-                        ReviewedAssetCell(asset: asset, imageManager: library.imageManager)
+                    ForEach(Array(assets.enumerated()), id: \.element.localIdentifier) { idx, asset in
+                        Button {
+                            selectedItem = AssetSelection(asset, index: idx, in: assets)
+                        } label: {
+                            ReviewedAssetCell(asset: asset, imageManager: library.imageManager)
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { hovering in
+                            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                        }
                     }
                 }
             }
@@ -106,6 +118,105 @@ struct ReviewedMediaView: View {
     }
 }
 
+// MARK: - Identifiable wrapper for sheet(item:)
+
+private struct AssetSelection: Identifiable {
+    let id: String
+    let asset: PHAsset
+    let index: Int
+    let allAssets: [PHAsset]
+
+    init(_ asset: PHAsset, index: Int, in assets: [PHAsset]) {
+        id = asset.localIdentifier
+        self.asset = asset
+        self.index = index
+        allAssets = assets
+    }
+}
+
+// MARK: - Full-size preview sheet with left/right navigation
+
+private struct AssetPreviewSheet: View {
+    let assets: [PHAsset]
+    let imageManager: PHCachingImageManager
+    @State private var currentIndex: Int
+    @Environment(\.dismiss) private var dismiss
+
+    init(assets: [PHAsset], startIndex: Int, imageManager: PHCachingImageManager) {
+        self.assets = assets
+        self.imageManager = imageManager
+        _currentIndex = State(initialValue: startIndex)
+    }
+
+    private var asset: PHAsset { assets[currentIndex] }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            toolbar
+            Divider()
+            MediaCardView(asset: asset, imageManager: imageManager)
+                .id(asset.localIdentifier)
+                .padding(20)
+        }
+        .frame(minWidth: 560, minHeight: 520)
+    }
+
+    private var toolbar: some View {
+        HStack(spacing: 0) {
+            // Prev/next navigation
+            HStack(spacing: 2) {
+                Button {
+                    currentIndex -= 1
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .frame(width: 32, height: 28)
+                }
+                .keyboardShortcut(.leftArrow, modifiers: [])
+                .disabled(currentIndex == 0)
+
+                Button {
+                    currentIndex += 1
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .frame(width: 32, height: 28)
+                }
+                .keyboardShortcut(.rightArrow, modifiers: [])
+                .disabled(currentIndex == assets.count - 1)
+            }
+            .buttonStyle(.borderless)
+
+            Text("\(currentIndex + 1) of \(assets.count)")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .padding(.leading, 10)
+
+            Spacer()
+
+            // Metadata
+            HStack(spacing: 6) {
+                if asset.isFavorite {
+                    Image(systemName: "heart.fill")
+                        .foregroundStyle(.pink)
+                }
+                if let date = asset.creationDate {
+                    Label(date.formatted(date: .abbreviated, time: .shortened),
+                          systemImage: "calendar")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer()
+
+            Button("Done") { dismiss() }
+                .keyboardShortcut(.cancelAction)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+    }
+}
+
 // MARK: - Thumbnail cell
 
 private struct ReviewedAssetCell: View {
@@ -114,28 +225,28 @@ private struct ReviewedAssetCell: View {
     @State private var image: NSImage?
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            Group {
+        Rectangle()
+            .fill(Color.secondary.opacity(0.18))
+            .aspectRatio(1, contentMode: .fit)
+            .overlay {
                 if let image {
                     Image(nsImage: image)
                         .resizable()
                         .scaledToFill()
-                } else {
-                    Color.secondary.opacity(0.18)
+                        .clipped()
                 }
             }
-            .aspectRatio(1, contentMode: .fit)
-            .clipped()
-
-            if asset.mediaType == .video {
-                Image(systemName: "video.fill")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .shadow(radius: 2)
-                    .padding(5)
+            .overlay(alignment: .bottomLeading) {
+                if asset.mediaType == .video {
+                    Image(systemName: "video.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .shadow(radius: 2)
+                        .padding(5)
+                }
             }
-        }
-        .task(id: asset.localIdentifier) { loadThumbnail() }
+            .clipped()
+            .task(id: asset.localIdentifier) { loadThumbnail() }
     }
 
     private func loadThumbnail() {
