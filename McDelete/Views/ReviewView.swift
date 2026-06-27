@@ -1,5 +1,6 @@
 import SwiftUI
 import Photos
+import UniformTypeIdentifiers
 
 /// The main swipe-to-decide screen.
 struct ReviewView: View {
@@ -97,6 +98,26 @@ struct ReviewView: View {
                     .gesture(dragGesture)
                     .shadow(color: .black.opacity(0.18), radius: 18, y: 8)
                     .padding(24)
+
+                // Share button — lives outside the drag view so it stays put during swipe animations
+                VStack {
+                    HStack {
+                        Spacer()
+                        ShareLink(
+                            item: PHAssetShareItem(asset: asset),
+                            preview: SharePreview(asset.mediaType == .video ? "Video" : "Photo")
+                        ) {
+                            Image(systemName: "square.and.arrow.up.circle.fill")
+                                .font(.system(size: 26))
+                                .symbolRenderingMode(.hierarchical)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isAnimatingOut)
+                        .padding(32)
+                    }
+                    Spacer()
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -287,3 +308,50 @@ private struct FilterSheet: View {
         }
     }
 }
+
+// MARK: - Share support
+
+/// Wraps a PHAsset for ShareLink. Exports the primary resource to a temp file on demand.
+private struct PHAssetShareItem: Transferable {
+    let asset: PHAsset
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(exportedContentType: .image) { item in
+            guard item.asset.mediaType == .image else { throw CocoaError(.fileReadNoSuchFile) }
+            return SentTransferredFile(try await item.exportedTempFileURL())
+        }
+        FileRepresentation(exportedContentType: .movie) { item in
+            guard item.asset.mediaType == .video else { throw CocoaError(.fileReadNoSuchFile) }
+            return SentTransferredFile(try await item.exportedTempFileURL())
+        }
+    }
+
+    private func exportedTempFileURL() async throws -> URL {
+        let preferredTypes: [PHAssetResourceType] = asset.mediaType == .video
+            ? [.video, .fullSizeVideo]
+            : [.photo, .fullSizePhoto]
+
+        let resources = PHAssetResource.assetResources(for: asset)
+        guard let resource = resources.first(where: { preferredTypes.contains($0.type) }) ?? resources.first else {
+            throw CocoaError(.fileReadNoSuchFile)
+        }
+
+        let ext = (resource.originalFilename as NSString).pathExtension
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension(ext)
+
+        let options = PHAssetResourceRequestOptions()
+        options.isNetworkAccessAllowed = true
+
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            PHAssetResourceManager.default().writeData(for: resource, toFile: tempURL, options: options) { error in
+                if let error { cont.resume(throwing: error) } else { cont.resume() }
+            }
+        }
+
+        return tempURL
+    }
+}
+
+extension PHAssetShareItem: @unchecked Sendable {}

@@ -2,13 +2,14 @@ import SwiftUI
 import Photos
 import AVKit
 
-/// Renders a single asset: a still image, or an auto-playing, looping, muted video.
+/// Renders a single asset: a still image, or an auto-playing, looping video (muted by default).
 struct MediaCardView: View {
     let asset: PHAsset
     let imageManager: PHCachingImageManager
 
     @State private var image: NSImage?
     @State private var player: AVPlayer?
+    @State private var isMuted = true
 
     var body: some View {
         ZStack {
@@ -37,6 +38,9 @@ struct MediaCardView: View {
         .task(id: asset.localIdentifier) {
             await load()
         }
+        .onChange(of: isMuted) { _, muted in
+            player?.isMuted = muted
+        }
     }
 
     // MARK: - Overlay badges
@@ -45,36 +49,40 @@ struct MediaCardView: View {
         VStack {
             HStack {
                 if let date = asset.creationDate {
-                    badge(systemName: "calendar", text: date.formatted(date: .abbreviated, time: .omitted))
+                    badge(systemImage: "calendar", text: date.formatted(date: .abbreviated, time: .omitted))
                 }
                 Spacer()
                 if asset.isFavorite {
-                    badge(systemName: "heart.fill", text: "Favorite", tint: .pink)
+                    badge(systemImage: "heart.fill", text: "Favorite", tint: .pink)
                 }
             }
             Spacer()
-            HStack {
-                if asset.mediaType == .video {
-                    badge(systemName: "play.fill", text: durationText)
+            if asset.mediaType == .video {
+                HStack {
+                    Spacer()
+                    Button {
+                        isMuted.toggle()
+                    } label: {
+                        Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(10)
+                            .background(.black.opacity(0.55), in: Circle())
+                    }
+                    .buttonStyle(.plain)
                 }
-                Spacer()
             }
         }
         .padding(16)
     }
 
-    private func badge(systemName: String, text: String, tint: Color = .white) -> some View {
-        Label(text, systemImage: systemName)
+    private func badge(systemImage: String, text: String, tint: Color = .white) -> some View {
+        Label(text, systemImage: systemImage)
             .font(.caption.weight(.semibold))
             .foregroundStyle(tint)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(.black.opacity(0.55), in: Capsule())
-    }
-
-    private var durationText: String {
-        let total = Int(asset.duration.rounded())
-        return String(format: "%d:%02d", total / 60, total % 60)
     }
 
     // MARK: - Loading
@@ -91,8 +99,8 @@ struct MediaCardView: View {
 
     private func loadImage() {
         let options = PHImageRequestOptions()
-        options.deliveryMode = .opportunistic   // quick low-res, then sharp
-        options.isNetworkAccessAllowed = true   // fetch from iCloud if needed
+        options.deliveryMode = .opportunistic
+        options.isNetworkAccessAllowed = true
         options.resizeMode = .fast
         let target = CGSize(width: 2400, height: 2400)
         imageManager.requestImage(for: asset,
@@ -114,7 +122,7 @@ struct MediaCardView: View {
         }
         guard let item else { return }
         let newPlayer = AVPlayer(playerItem: item)
-        newPlayer.isMuted = true
+        newPlayer.isMuted = isMuted
         self.player = newPlayer
     }
 }
@@ -127,7 +135,7 @@ private struct AVPlayerViewRepresentable: NSViewRepresentable {
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView()
         view.player = player
-        view.controlsStyle = .none
+        view.controlsStyle = .inline
         return view
     }
 
