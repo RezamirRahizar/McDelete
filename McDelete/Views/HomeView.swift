@@ -3,7 +3,7 @@ import Photos
 
 struct HomeView: View {
     @Environment(PhotoLibrary.self) private var library
-    let onStartReview: () -> Void
+    @Environment(AppCoordinator.self) private var coordinator
 
     @State private var showReviewedMedia = false
     @State private var deletionFailed = false
@@ -187,10 +187,10 @@ struct HomeView: View {
         if library.isFinished {
             Task {
                 await library.resetAndLoadAssets()
-                onStartReview()
+                coordinator.startReview()
             }
         } else {
-            onStartReview()
+            coordinator.startReview()
         }
     }
 }

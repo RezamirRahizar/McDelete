@@ -6,8 +6,13 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		1DE0371C2FF005C00009B33F /* AppCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DE0371B2FF005C00009B33F /* AppCoordinator.swift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		1DD8E5ED2FE7EB8E000058A8 /* McDelete.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = McDelete.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1DE0371B2FF005C00009B33F /* AppCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCoordinator.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -34,6 +39,7 @@
 			children = (
 				1DD8E5EF2FE7EB8E000058A8 /* McDelete */,
 				1DD8E5EE2FE7EB8E000058A8 /* Products */,
+				1DE0371B2FF005C00009B33F /* AppCoordinator.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -119,6 +125,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1DE0371C2FF005C00009B33F /* AppCoordinator.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

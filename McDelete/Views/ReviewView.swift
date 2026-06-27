@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 /// The main swipe-to-decide screen.
 struct ReviewView: View {
     @Environment(PhotoLibrary.self) private var library
+    @Environment(AppCoordinator.self) private var coordinator
     @State private var dragOffset: CGSize = .zero
     @State private var isAnimatingOut = false
     @State private var showFilterSheet = false
@@ -49,6 +50,12 @@ struct ReviewView: View {
     private var header: some View {
         VStack(spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
+                Button { coordinator.goHome() } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .buttonStyle(.borderless)
+                .help("Back to Home")
+
                 Text("Reviewing \(library.reviewedCount + 1) of \(library.totalCount)")
                     .font(.headline)
                 Button { showFilterSheet = true } label: {

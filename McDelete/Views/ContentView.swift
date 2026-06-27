@@ -3,7 +3,7 @@ import Photos
 
 struct ContentView: View {
     @Environment(PhotoLibrary.self) private var library
-    @State private var isReviewing = false
+    @State private var coordinator = AppCoordinator()
 
     var body: some View {
         Group {
@@ -18,6 +18,7 @@ struct ContentView: View {
                 DeniedView()
             }
         }
+        .environment(coordinator)
         .task {
             if (library.status == .authorized || library.status == .limited) && !library.hasStarted {
                 await library.loadAssets()
@@ -35,13 +36,13 @@ struct ContentView: View {
             CenteredMessage(systemImage: "photo",
                             title: "No photos found",
                             message: "Your photo library appears to be empty.")
-        } else if isReviewing && !library.isFinished {
+        } else if coordinator.destination == .review && !library.isFinished {
             ReviewView()
                 .onChange(of: library.isFinished) { _, finished in
-                    if finished { isReviewing = false }
+                    if finished { coordinator.goHome() }
                 }
         } else {
-            HomeView(onStartReview: { isReviewing = true })
+            HomeView()
         }
     }
 }
