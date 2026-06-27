@@ -43,6 +43,7 @@ final class PhotoLibrary {
     private(set) var assets: [PHAsset] = []
     private(set) var index = 0
     private(set) var keptCount = 0
+    private(set) var keptAssets: [PHAsset] = []
     private(set) var pendingDeletion: [PHAsset] = []
     private(set) var pendingDeletionBytes: Int64 = 0
     /// Total photos matching the current filter, including already-reviewed ones.
@@ -164,12 +165,13 @@ final class PhotoLibrary {
 
         let saved = PersistenceController.shared.fetchAllDecisions()
         var kept = 0
+        var keptList: [PHAsset] = []
         var toDelete: [PHAsset] = []
         var unreviewed: [PHAsset] = []
 
         for asset in collected {
             if let markedForDeletion = saved[asset.localIdentifier] {
-                if markedForDeletion { toDelete.append(asset) } else { kept += 1 }
+                if markedForDeletion { toDelete.append(asset) } else { kept += 1; keptList.append(asset) }
             } else {
                 unreviewed.append(asset)
             }
@@ -179,6 +181,7 @@ final class PhotoLibrary {
         pendingDeletion = toDelete
         pendingDeletionBytes = toDelete.reduce(0) { $0 + fileSize(for: $1) }
         keptCount = kept
+        keptAssets = keptList
         index = 0
         history = []
         reviewedPhotoCount = 0
@@ -200,6 +203,7 @@ final class PhotoLibrary {
         guard let asset = currentAsset else { return }
         history.append((index, .kept))
         keptCount += 1
+        keptAssets.append(asset)
         trackMediaType(asset)
         PersistenceController.shared.saveDecision(localIdentifier: asset.localIdentifier, markedForDeletion: false)
         advance()
@@ -224,6 +228,7 @@ final class PhotoLibrary {
         switch last.decision {
         case .kept:
             keptCount = max(0, keptCount - 1)
+            if let pos = keptAssets.lastIndex(of: asset) { keptAssets.remove(at: pos) }
         case .deleted:
             if let pos = pendingDeletion.lastIndex(of: asset) {
                 pendingDeletion.remove(at: pos)

@@ -3,6 +3,7 @@ import Photos
 
 struct ContentView: View {
     @Environment(PhotoLibrary.self) private var library
+    @State private var isReviewing = false
 
     var body: some View {
         Group {
@@ -30,14 +31,17 @@ struct ContentView: View {
             CenteredMessage(systemImage: "photo.on.rectangle.angled",
                             title: "Loading your library…",
                             message: nil) { ProgressView() }
-        } else if library.libraryTotalCount == 0 {
+        } else if library.libraryTotalCount == 0 && library.hasStarted {
             CenteredMessage(systemImage: "photo",
                             title: "No photos found",
                             message: "Your photo library appears to be empty.")
-        } else if library.isFinished {
-            SummaryView()
-        } else {
+        } else if isReviewing && !library.isFinished {
             ReviewView()
+                .onChange(of: library.isFinished) { _, finished in
+                    if finished { isReviewing = false }
+                }
+        } else {
+            HomeView(onStartReview: { isReviewing = true })
         }
     }
 }
@@ -147,125 +151,6 @@ private struct DeniedView: View {
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-// MARK: - Summary / finish
-
-private struct SummaryView: View {
-    @Environment(PhotoLibrary.self) private var library
-    @State private var deletionFailed = false
-
-    var body: some View {
-        VStack(spacing: 22) {
-            Image(systemName: library.pendingDeletion.isEmpty ? "checkmark.seal.fill" : "trash.circle.fill")
-                .font(.system(size: 64))
-                .foregroundStyle(library.pendingDeletion.isEmpty ? .green : .red)
-
-            Text(library.pendingDeletion.isEmpty ? "All caught up!" : "Ready to clean up")
-                .font(.largeTitle.bold())
-
-            HStack(spacing: 40) {
-                stat(count: library.keptCount,
-                     percentage: percentage(library.keptCount),
-                     label: "Kept", tint: .green)
-                stat(count: library.pendingDeletion.count,
-                     percentage: percentage(library.pendingDeletion.count),
-                     label: "To delete", tint: .red,
-                     subtitle: library.pendingDeletionBytes > 0 ? library.pendingDeletionSize : nil)
-            }
-
-            sessionDetailRow
-
-            if !library.pendingDeletion.isEmpty {
-                Text("These move to Recently Deleted, where they stay for 30 days before being permanently removed.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 420)
-
-                Button {
-                    Task {
-                        let ok = await library.confirmDeletions()
-                        deletionFailed = !ok
-                    }
-                } label: {
-                    Label("Delete \(library.pendingDeletion.count) item\(library.pendingDeletion.count == 1 ? "" : "s")",
-                          systemImage: "trash.fill")
-                        .font(.headline)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
-                .controlSize(.large)
-                .disabled(library.isDeleting)
-            }
-
-            Button("Review Again") {
-                Task { await library.resetAndLoadAssets() }
-            }
-            .controlSize(.large)
-            .disabled(library.isDeleting)
-
-            if library.isDeleting { ProgressView() }
-        }
-        .padding(40)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .alert("Couldn't delete items", isPresented: $deletionFailed) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("The deletion was cancelled or failed. Your photos are unchanged.")
-        }
-    }
-
-    @ViewBuilder
-    private var sessionDetailRow: some View {
-        let showPhotos = library.reviewedPhotoCount > 0
-        let showVideos = library.reviewedVideoCount > 0
-        let showTime = library.sessionDuration != nil
-        if showPhotos || showVideos || showTime {
-            HStack(spacing: 20) {
-                if showPhotos {
-                    Label("\(library.reviewedPhotoCount)", systemImage: "photo")
-                }
-                if showVideos {
-                    Label("\(library.reviewedVideoCount)", systemImage: "video")
-                }
-                if let duration = library.sessionDuration {
-                    Label(formattedDuration(duration), systemImage: "clock")
-                }
-            }
-            .font(.callout)
-            .foregroundStyle(.secondary)
-        }
-    }
-
-    private func percentage(_ count: Int) -> Int? {
-        let total = library.totalReviewed
-        guard total > 0 else { return nil }
-        return Int((Double(count) / Double(total)) * 100)
-    }
-
-    private func formattedDuration(_ seconds: TimeInterval) -> String {
-        let total = Int(seconds)
-        if total < 60 { return "\(total)s" }
-        let min = total / 60
-        let sec = total % 60
-        return sec > 0 ? "\(min)m \(sec)s" : "\(min)m"
-    }
-
-    private func stat(count: Int, percentage: Int?, label: String, tint: Color, subtitle: String? = nil) -> some View {
-        VStack(spacing: 2) {
-            Text("\(count)").font(.system(size: 40, weight: .bold, design: .rounded)).foregroundStyle(tint)
-            if let percentage {
-                Text("\(percentage)%").font(.caption).foregroundStyle(tint.opacity(0.7))
-            }
-            Text(label).foregroundStyle(.secondary)
-            if let subtitle {
-                Text(subtitle).font(.caption).foregroundStyle(tint.opacity(0.6))
-            }
-        }
     }
 }
 
