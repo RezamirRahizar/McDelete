@@ -6,7 +6,6 @@ struct HomeView: View {
     @Environment(AppCoordinator.self) private var coordinator
 
     @State private var showReviewedMedia = false
-    @State private var deletionFailed = false
     @Namespace private var statsNamespace
 
     var body: some View {
@@ -38,7 +37,6 @@ struct HomeView: View {
                 }
                 .buttonStyle(.glassProminent)
                 .controlSize(.extraLarge)
-                .disabled(library.isDeleting)
 
                 secondarySection
                     .padding(.top, 12)
@@ -50,11 +48,6 @@ struct HomeView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .sheet(isPresented: $showReviewedMedia) {
             ReviewedMediaView()
-        }
-        .alert("Couldn't delete items", isPresented: $deletionFailed) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("The deletion was cancelled or failed. Your photos are unchanged.")
         }
     }
 
@@ -127,22 +120,6 @@ struct HomeView: View {
 
     private var secondarySection: some View {
         VStack(spacing: 8) {
-            if library.pendingDeletion.count > 0 {
-                Button {
-                    Task {
-                        let ok = await library.confirmDeletions()
-                        deletionFailed = !ok
-                    }
-                } label: {
-                    Label(deleteTitle, systemImage: "trash.fill")
-                        .frame(minWidth: 260)
-                }
-                .buttonStyle(.glass)
-                .tint(.red)
-                .controlSize(.large)
-                .disabled(library.isDeleting)
-            }
-
             if library.keptCount > 0 || library.pendingDeletion.count > 0 {
                 Button { showReviewedMedia = true } label: {
                     Label("View Reviewed Media", systemImage: "photo.stack")
@@ -150,10 +127,7 @@ struct HomeView: View {
                 }
                 .buttonStyle(.glass)
                 .controlSize(.large)
-            }
-
-            if library.isDeleting {
-                ProgressView().padding(.top, 4)
+                .padding(.vertical, 2)
             }
         }
     }
@@ -175,12 +149,6 @@ struct HomeView: View {
         if library.isFinished { return "Review Again" }
         let remaining = library.totalCount - library.reviewedCount
         return "Resume · \(remaining) left"
-    }
-
-    private var deleteTitle: String {
-        let count = library.pendingDeletion.count
-        let base = "Delete \(count) item\(count == 1 ? "" : "s")"
-        return library.pendingDeletionBytes > 0 ? "\(base) · \(library.pendingDeletionSize)" : base
     }
 
     private func handleStart() {
