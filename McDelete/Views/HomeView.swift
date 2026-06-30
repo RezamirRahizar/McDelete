@@ -6,6 +6,7 @@ struct HomeView: View {
     @Environment(AppCoordinator.self) private var coordinator
 
     @State private var showReviewedMedia = false
+    @State private var showResetTimerConfirm = false
     @Namespace private var statsNamespace
 
     var body: some View {
@@ -48,6 +49,13 @@ struct HomeView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .sheet(isPresented: $showReviewedMedia) {
             ReviewedMediaView()
+        }
+        .confirmationDialog("Reset elapsed time?",
+                            isPresented: $showResetTimerConfirm, titleVisibility: .visible) {
+            Button("Reset", role: .destructive) { library.resetActiveTime() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This clears the tracked review time back to zero.")
         }
     }
 
@@ -129,7 +137,26 @@ struct HomeView: View {
                 .controlSize(.large)
                 .padding(.vertical, 2)
             }
+
+            elapsedTimeRow
         }
+    }
+
+    private var elapsedTimeRow: some View {
+        HStack(spacing: 8) {
+            Label("Time elapsed: \(library.formattedElapsedTime)", systemImage: "clock")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+
+            Button { showResetTimerConfirm = true } label: {
+                Image(systemName: "arrow.counterclockwise")
+            }
+            .buttonStyle(.borderless)
+            .help("Reset elapsed time")
+            .disabled(library.activeReviewSeconds == 0)
+        }
+        .padding(.top, 4)
     }
 
     // MARK: - Computed

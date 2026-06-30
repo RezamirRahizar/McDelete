@@ -84,9 +84,23 @@ final class PhotoLibrary {
         UserDefaults.standard.set(activeReviewSeconds, forKey: PhotoLibrary.activeReviewSecondsKey)
     }
 
-    private func resetActiveTime() {
+    func resetActiveTime() {
         activeReviewSeconds = 0
         UserDefaults.standard.removeObject(forKey: PhotoLibrary.activeReviewSecondsKey)
+    }
+
+    /// Human-readable elapsed active-review time (e.g. "3:07", "1:02:09", "2d 4h 11m").
+    var formattedElapsedTime: String {
+        let total = activeReviewSeconds
+        let weeks   = total / 604800
+        let days    = (total % 604800) / 86400
+        let hours   = (total % 86400)  / 3600
+        let minutes = (total % 3600)   / 60
+        let seconds = total % 60
+        if weeks > 0  { return "\(weeks)w \(days)d \(hours)h" }
+        if days > 0   { return "\(days)d \(hours)h \(minutes)m" }
+        if hours > 0  { return String(format: "%d:%02d:%02d", hours, minutes, seconds) }
+        return String(format: "%d:%02d", minutes, seconds)
     }
 
     // MARK: - Derived state
@@ -371,9 +385,15 @@ final class PhotoLibrary {
     }
 
     /// Returns assets that belong to groups of 2 or more near-identical items.
-    /// Groups by burst identifier first, then by same creation second + same pixel dimensions.
     private func extractDuplicates(from assets: [PHAsset]) -> [PHAsset] {
-        var duplicateIDs: Set<String> = []
+        let duplicateIDs = Set(duplicateGroups(from: assets).flatMap { $0 }.map(\.localIdentifier))
+        return assets.filter { duplicateIDs.contains($0.localIdentifier) }
+    }
+
+    /// Groups near-identical assets into clusters of 2 or more.
+    /// Groups by burst identifier first, then by same creation second + same pixel dimensions.
+    private func duplicateGroups(from assets: [PHAsset]) -> [[PHAsset]] {
+        var groups: [[PHAsset]] = []
 
         // Burst groups
         var burstGroups: [String: [PHAsset]] = [:]
@@ -383,7 +403,7 @@ final class PhotoLibrary {
             }
         }
         for (_, group) in burstGroups where group.count > 1 {
-            group.forEach { duplicateIDs.insert($0.localIdentifier) }
+            groups.append(group)
         }
 
         // Same-second + same-dimension groups (non-burst assets only)
@@ -396,9 +416,65 @@ final class PhotoLibrary {
             timestampGroups[key, default: []].append(asset)
         }
         for (_, group) in timestampGroups where group.count > 1 {
-            group.forEach { duplicateIDs.insert($0.localIdentifier) }
+            groups.append(group)
         }
 
-        return assets.filter { duplicateIDs.contains($0.localIdentifier) }
+        return groups
+    }
+
+    // MARK: - Auto-merge duplicates
+
+    /// Number of unreviewed assets that auto-merge would mark for deletion,
+    /// i.e. duplicates that aren't the chosen keeper of their group (favorites excluded).
+    var autoMergeCandidateCount: Int {
+        duplicateGroups(from: assets).reduce(0) { $0 + deletableMembers(in: $1).count }
+    }
+
+    /// Resolves every remaining duplicate group by keeping its best copy and marking the
+    /// rest for deletion. Favorites are never marked. Decisions flow through the normal
+    /// pending-deletion pipeline, so they're reversible until the user confirms.
+    /// Returns the number of assets marked for deletion.
+    @discardableResult
+    func autoMergeDuplicates() -> Int {
+        let deleteIDs = Set(
+            duplicateGroups(from: assets)
+                .flatMap { deletableMembers(in: $0) }
+                .map(\.localIdentifier)
+        )
+        guard !deleteIDs.isEmpty else { return 0 }
+
+        var marked = 0
+        // Reuse the per-asset decision path so counts, history (undo) and persistence stay consistent.
+        while let asset = currentAsset {
+            if deleteIDs.contains(asset.localIdentifier) {
+                markForDeletion()
+                marked += 1
+            } else {
+                keep()
+            }
+        }
+        return marked
+    }
+
+    /// The members of a duplicate group that should be marked for deletion:
+    /// everything except the chosen keeper, never including favorites.
+    private func deletableMembers(in group: [PHAsset]) -> [PHAsset] {
+        guard group.count > 1 else { return [] }
+        let keeper = bestKeeper(in: group)
+        return group.filter { $0.localIdentifier != keeper.localIdentifier && !$0.isFavorite }
+    }
+
+    /// Picks the copy to keep from a duplicate group: favorite first, then most pixels,
+    /// then the earliest capture (most likely the original).
+    private func bestKeeper(in group: [PHAsset]) -> PHAsset {
+        group.max { a, b in
+            if a.isFavorite != b.isFavorite { return !a.isFavorite }   // favorite wins
+            let pa = a.pixelWidth * a.pixelHeight
+            let pb = b.pixelWidth * b.pixelHeight
+            if pa != pb { return pa < pb }                              // more pixels wins
+            let da = a.creationDate ?? .distantFuture
+            let db = b.creationDate ?? .distantFuture
+            return da > db                                             // earlier capture wins
+        } ?? group[0]
     }
 }

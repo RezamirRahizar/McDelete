@@ -10,22 +10,17 @@ struct ReviewView: View {
     @State private var dragOffset: CGSize = .zero
     @State private var isAnimatingOut = false
     @State private var showFilterSheet = false
+    @State private var showMergeConfirm = false
     @State private var isSceneActive = true
+    /// Timestamp of the last button/shortcut decision, used to tell a deliberate
+    /// one-by-one tap from a held key/button that auto-repeats much faster.
+    @State private var lastDecisionAt: Date = .distantPast
 
     private let swipeThreshold: CGFloat = 110
-
-    private var formattedElapsed: String {
-        let total = library.activeReviewSeconds
-        let weeks   = total / 604800
-        let days    = (total % 604800) / 86400
-        let hours   = (total % 86400)  / 3600
-        let minutes = (total % 3600)   / 60
-        let seconds = total % 60
-        if weeks > 0  { return "\(weeks)w \(days)d \(hours)h" }
-        if days > 0   { return "\(days)d \(hours)h \(minutes)m" }
-        if hours > 0  { return String(format: "%d:%02d:%02d", hours, minutes, seconds) }
-        return String(format: "%d:%02d", minutes, seconds)
-    }
+    /// Decisions arriving closer together than this are treated as a held repeat
+    /// (instant), rather than a single tap (animated). Held key-repeats fire at
+    /// roughly this cadence; human taps are slower.
+    private let rapidHoldWindow: TimeInterval = 0.18
 
     private var isFilterActive: Bool {
         library.mediaFilter != .all || library.dateRangeEnabled || !library.selectedAlbumID.isEmpty
@@ -58,12 +53,25 @@ struct ReviewView: View {
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet()
         }
+        .confirmationDialog("Auto-merge duplicates?",
+                            isPresented: $showMergeConfirm, titleVisibility: .visible) {
+            Button("Keep best · mark \(library.autoMergeCandidateCount) for deletion") {
+                library.autoMergeDuplicates()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("For each group of duplicates, the highest-resolution copy is kept and the rest are marked for deletion. Favorites are always kept. Nothing is deleted until you confirm in Reviewed Media.")
+        }
         .onAppear {
             isSceneActive = NSApplication.shared.isActive
         }
         .task {
-            while true {
+            // Stop when the view goes away — otherwise a cancelled `Task.sleep`
+            // throws instantly each iteration and the loop busy-spins, inflating
+            // the elapsed time.
+            while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { break }
                 if isSceneActive { library.incrementActiveTime() }
             }
         }
@@ -101,6 +109,16 @@ struct ReviewView: View {
                     .foregroundStyle(library.mediaFilter == .all && !library.dateRangeEnabled && library.selectedAlbumID.isEmpty
                                      ? Color.secondary : Color.accentColor)
                     .help(filterHelpText)
+
+                if library.mediaFilter == .duplicates {
+                    Button { showMergeConfirm = true } label: {
+                        Label("Auto-merge", systemImage: "wand.and.stars")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Keep the best copy of each duplicate group; mark the rest for deletion")
+                    .disabled(library.autoMergeCandidateCount == 0)
+                }
+
                 Spacer()
                 Label("\(library.keptCount) kept", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
@@ -109,17 +127,15 @@ struct ReviewView: View {
             }
             .font(.subheadline)
             
-            if(library.pendingDeletionBytes > 0) {
-                HStack(alignment: .firstTextBaseline) {
-                    Label("Time elasped: \(formattedElapsed)", systemImage: "clock")
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                    Spacer()
+            HStack(alignment: .firstTextBaseline) {
+                Label("Time elapsed: \(library.formattedElapsedTime)", systemImage: "clock")
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                Spacer()
+                if library.pendingDeletionBytes > 0 {
                     Text("Estimated size to delete: \(library.pendingDeletionSize)")
                         .font(.subheadline)
                 }
-                
-
             }
 
             ProgressView(value: library.progress)
@@ -215,7 +231,7 @@ struct ReviewView: View {
     private var controls: some View {
         HStack(spacing: 16) {
             decisionButton(title: "Delete", systemImage: "trash.fill", tint: .red,
-                           shortcut: .leftArrow) { decide(keep: false) }
+                           shortcut: .leftArrow) { handleDecision(keep: false) }
 
             Button { library.undo() } label: {
                 Label("Undo", systemImage: "arrow.uturn.backward")
@@ -229,7 +245,7 @@ struct ReviewView: View {
             .disabled(!library.canUndo)
 
             decisionButton(title: "Keep", systemImage: "checkmark", tint: .green,
-                           shortcut: .rightArrow) { decide(keep: true) }
+                           shortcut: .rightArrow) { handleDecision(keep: true) }
         }
         .padding(20)
     }
@@ -246,10 +262,39 @@ struct ReviewView: View {
         .tint(tint)
         .controlSize(.large)
         .keyboardShortcut(shortcut, modifiers: [])
-        .disabled(library.currentAsset == nil || isAnimatingOut)
+        // Hold the button — or hold its arrow-key shortcut — to rapid-fire decisions.
+        .buttonRepeatBehavior(.enabled)
+        .help("\(title) — hold to repeat")
+        // Note: not disabled on `isAnimatingOut` — toggling enabled mid-press
+        // cancels the repeat sequence. Re-entrancy is guarded inside the decision
+        // handlers instead.
+        .disabled(library.currentAsset == nil)
     }
 
     // MARK: - Decision animation
+
+    /// Entry point for the Delete/Keep buttons and their arrow-key shortcuts.
+    /// A deliberate single tap plays the fly-out animation; a held key/button —
+    /// whose auto-repeats arrive much faster — switches to instant decisions so
+    /// batch reviewing stays snappy.
+    private func handleDecision(keep: Bool) {
+        let now = Date()
+        let isHeld = now.timeIntervalSince(lastDecisionAt) < rapidHoldWindow
+        lastDecisionAt = now
+        if isHeld {
+            quickDecide(keep: keep)
+        } else {
+            decide(keep: keep)
+        }
+    }
+
+    /// Instant, non-animated decision used while a button/shortcut is held down.
+    /// Skipping the fly-out animation lets `buttonRepeatBehavior` fire back-to-back.
+    private func quickDecide(keep: Bool) {
+        guard library.currentAsset != nil, !isAnimatingOut else { return }
+        dragOffset = .zero
+        if keep { library.keep() } else { library.markForDeletion() }
+    }
 
     private func decide(keep: Bool) {
         guard library.currentAsset != nil, !isAnimatingOut else { return }
