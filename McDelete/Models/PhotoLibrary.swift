@@ -217,6 +217,7 @@ final class PhotoLibrary {
         sessionStartDate = Date()
         sessionEndDate = nil
         hasLoaded = true
+        refreshAutoMergeCandidateCount()
     }
 
     /// Clears all saved decisions and reloads the full library from scratch.
@@ -424,10 +425,20 @@ final class PhotoLibrary {
 
     // MARK: - Auto-merge duplicates
 
-    /// Number of unreviewed assets that auto-merge would mark for deletion,
-    /// i.e. duplicates that aren't the chosen keeper of their group (favorites excluded).
-    var autoMergeCandidateCount: Int {
-        duplicateGroups(from: assets).reduce(0) { $0 + deletableMembers(in: $1).count }
+    /// Number of unreviewed assets that auto-merge would mark for deletion, i.e. duplicates
+    /// that aren't the chosen keeper of their group (favorites excluded).
+    ///
+    /// Cached at load time rather than computed on demand: the duplicate grouping is
+    /// session-constant (the `assets` array doesn't change between loads), and recomputing
+    /// it on every view update — each drag frame, each timer tick — was noticeably sluggish.
+    private(set) var autoMergeCandidateCount = 0
+
+    /// Recomputes `autoMergeCandidateCount` from the current asset set. Only meaningful in
+    /// the Duplicates filter; zero otherwise.
+    private func refreshAutoMergeCandidateCount() {
+        autoMergeCandidateCount = mediaFilter == .duplicates
+            ? duplicateGroups(from: assets).reduce(0) { $0 + deletableMembers(in: $1).count }
+            : 0
     }
 
     /// Resolves every remaining duplicate group by keeping its best copy and marking the
@@ -453,6 +464,7 @@ final class PhotoLibrary {
                 keep()
             }
         }
+        autoMergeCandidateCount = 0
         return marked
     }
 
