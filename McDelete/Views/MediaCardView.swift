@@ -17,10 +17,10 @@ struct MediaCardView: View {
     @State private var loadedAssetID: String?
 
     /// Identity for the load task: changes on a new asset or a meaningfully different
-    /// card size, so we re-request a right-sized image instead of the old fixed 2400².
-    /// Videos don't depend on size.
+    /// card size, so we re-request a right-sized image. Videos don't depend on size.
     private var loadRequestID: String {
         guard asset.mediaType != .video else { return "v-\(asset.localIdentifier)" }
+        guard displaySize.width > 0 else { return "\(asset.localIdentifier)-pending" }
         let w = Int((displaySize.width / 100).rounded(.up)) * 100
         let h = Int((displaySize.height / 100).rounded(.up)) * 100
         return "\(asset.localIdentifier)-\(w)x\(h)"
@@ -128,15 +128,16 @@ struct MediaCardView: View {
         }
         loadedAssetID = asset.localIdentifier
 
-        // Request at the card's pixel size rather than a fixed 2400² — far less memory
-        // per image, which keeps the caching manager from ballooning over a long session.
+        // Request at the card's pixel size rather than a fixed 2400² — keeps memory low.
         let scale = NSScreen.main?.backingScaleFactor ?? 2
         let target = CGSize(width: displaySize.width * scale, height: displaySize.height * scale)
 
+        // Opportunistic delivery hands back a cached/degraded image almost instantly and
+        // then the sharp one — this is what makes rapid decisions feel loading-free.
         let options = PHImageRequestOptions()
-        options.deliveryMode = .highQualityFormat
+        options.deliveryMode = .opportunistic
         options.isNetworkAccessAllowed = true
-        options.resizeMode = .exact
+        options.resizeMode = .fast
         imageManager.requestImage(for: asset,
                                   targetSize: target,
                                   contentMode: .aspectFit,
