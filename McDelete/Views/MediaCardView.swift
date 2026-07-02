@@ -1,6 +1,7 @@
 import SwiftUI
 import Photos
 import AVKit
+import AppKit
 
 /// Renders a single asset: a still image, or an auto-playing, looping video (muted by default).
 struct MediaCardView: View {
@@ -10,6 +11,20 @@ struct MediaCardView: View {
     @State private var image: NSImage?
     @State private var player: AVPlayer?
     @State private var isMuted = true
+    /// Card size in points, measured from layout; drives the image request size.
+    @State private var displaySize: CGSize = .zero
+    /// The asset the current `image` belongs to, so a resize doesn't clear a valid image.
+    @State private var loadedAssetID: String?
+
+    /// Identity for the load task: changes on a new asset or a meaningfully different
+    /// card size, so we re-request a right-sized image instead of the old fixed 2400².
+    /// Videos don't depend on size.
+    private var loadRequestID: String {
+        guard asset.mediaType != .video else { return "v-\(asset.localIdentifier)" }
+        let w = Int((displaySize.width / 100).rounded(.up)) * 100
+        let h = Int((displaySize.height / 100).rounded(.up)) * 100
+        return "\(asset.localIdentifier)-\(w)x\(h)"
+    }
 
     var body: some View {
         ZStack {
@@ -35,7 +50,12 @@ struct MediaCardView: View {
 
             metadataBadges
         }
-        .task(id: asset.localIdentifier) {
+        .onGeometryChange(for: CGSize.self) { proxy in
+            proxy.size
+        } action: { newSize in
+            displaySize = newSize
+        }
+        .task(id: loadRequestID) {
             await load()
         }
         .onChange(of: isMuted) { _, muted in
@@ -88,21 +108,35 @@ struct MediaCardView: View {
     // MARK: - Loading
 
     private func load() async {
-        image = nil
-        player = nil
         if asset.mediaType == .video {
+            image = nil
             await loadVideo()
         } else {
+            player = nil
             loadImage()
         }
     }
 
     private func loadImage() {
+        // Wait until the card has been laid out so we can request a right-sized image.
+        guard displaySize.width > 0, displaySize.height > 0 else { return }
+
+        // Only clear when moving to a different asset; a pure resize keeps the current
+        // image on screen until the newly-sized one arrives (no flash to a spinner).
+        if loadedAssetID != asset.localIdentifier {
+            image = nil
+        }
+        loadedAssetID = asset.localIdentifier
+
+        // Request at the card's pixel size rather than a fixed 2400² — far less memory
+        // per image, which keeps the caching manager from ballooning over a long session.
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        let target = CGSize(width: displaySize.width * scale, height: displaySize.height * scale)
+
         let options = PHImageRequestOptions()
-        options.deliveryMode = .opportunistic
+        options.deliveryMode = .highQualityFormat
         options.isNetworkAccessAllowed = true
-        options.resizeMode = .fast
-        let target = CGSize(width: 2400, height: 2400)
+        options.resizeMode = .exact
         imageManager.requestImage(for: asset,
                                   targetSize: target,
                                   contentMode: .aspectFit,

@@ -300,7 +300,7 @@ struct ReviewView: View {
         guard library.currentAsset != nil, !isAnimatingOut else { return }
         isAnimatingOut = true
         let direction: CGFloat = keep ? 1 : -1
-        withAnimation(.easeOut(duration: 0.22)) {
+        withAnimation(.easeOut(duration: 0.1)) {
             dragOffset = CGSize(width: direction * 1400, height: 0)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {

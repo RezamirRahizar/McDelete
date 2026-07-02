@@ -73,6 +73,7 @@ final class PhotoLibrary {
     let imageManager = PHCachingImageManager()
 
     private static let activeReviewSecondsKey = "activeReviewSeconds"
+    private static let lastPositionKey = "lastReviewedAssetID"
 
     init() {
         status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
@@ -87,6 +88,33 @@ final class PhotoLibrary {
     func resetActiveTime() {
         activeReviewSeconds = 0
         UserDefaults.standard.removeObject(forKey: PhotoLibrary.activeReviewSecondsKey)
+    }
+
+    // MARK: - Resume position
+
+    /// Persists the current asset's identifier so the next launch resumes here instead of
+    /// jumping back to earlier, skipped (jumped-past, undecided) media. Cleared when the
+    /// session is finished (no current asset).
+    private func saveCurrentPosition() {
+        if let id = currentAsset?.localIdentifier {
+            UserDefaults.standard.set(id, forKey: PhotoLibrary.lastPositionKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: PhotoLibrary.lastPositionKey)
+        }
+    }
+
+    /// Forgets the saved resume position, so the next load starts at the beginning.
+    private func clearSavedPosition() {
+        UserDefaults.standard.removeObject(forKey: PhotoLibrary.lastPositionKey)
+    }
+
+    /// The index of the saved resume position within `assets`, or 0 if there's no saved
+    /// position or the asset is no longer in the unreviewed queue.
+    private func resumeIndex(in assets: [PHAsset]) -> Int {
+        guard let savedID = UserDefaults.standard.string(forKey: PhotoLibrary.lastPositionKey),
+              let idx = assets.firstIndex(where: { $0.localIdentifier == savedID })
+        else { return 0 }
+        return idx
     }
 
     /// Human-readable elapsed active-review time (e.g. "3:07", "1:02:09", "2d 4h 11m").
@@ -141,6 +169,7 @@ final class PhotoLibrary {
         } else {
             index = assetIndex
         }
+        saveCurrentPosition()
     }
 
     var progress: Double {
@@ -210,7 +239,8 @@ final class PhotoLibrary {
         pendingDeletionBytes = toDelete.reduce(0) { $0 + fileSize(for: $1) }
         keptCount = kept
         keptAssets = keptList
-        index = 0
+        // Resume where the user left off; skipped media before this point stay skipped.
+        index = resumeIndex(in: unreviewed)
         history = []
         reviewedPhotoCount = 0
         reviewedVideoCount = 0
@@ -221,8 +251,10 @@ final class PhotoLibrary {
     }
 
     /// Clears all saved decisions and reloads the full library from scratch.
+    /// Used for an explicit restart, so the saved resume position is discarded too.
     func resetAndLoadAssets() async {
         PersistenceController.shared.deleteAllDecisions()
+        clearSavedPosition()
         await loadAssets()
     }
 
@@ -264,6 +296,7 @@ final class PhotoLibrary {
             }
             pendingDeletionBytes = max(0, pendingDeletionBytes - fileSize(for: asset))
         }
+        saveCurrentPosition()
     }
 
     private func trackMediaType(_ asset: PHAsset) {
@@ -287,6 +320,7 @@ final class PhotoLibrary {
         if isFinished, sessionEndDate == nil {
             sessionEndDate = Date()
         }
+        saveCurrentPosition()
     }
 
     // MARK: - Committing deletions
